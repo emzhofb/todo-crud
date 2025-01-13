@@ -189,3 +189,16 @@ func (server *Server) deleteTask(ctx *gin.Context) {
 		"message": "task deleted successfully",
 	})
 }
+
+func (server *Server) createToken(ctx *gin.Context) {
+	accessToken, accessPayload, err := server.tokenMaker.CreateToken("admin", "admin", server.config.AccessTokenDuration)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{
+		"access_token": accessToken,
+		"expires":      accessPayload.ExpiredAt,
+	})
+}

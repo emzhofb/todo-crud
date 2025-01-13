@@ -55,6 +55,15 @@ func (server *Server) setupRouter() {
 	router.PUT("/tasks/:id", server.updateTask)
 	router.DELETE("/tasks/:id", server.deleteTask)
 
+	// use auth middleware
+	router.GET("/token", server.createToken)
+	authRoutes := router.Group("/api/v1").Use(authMiddleware(server.tokenMaker))
+	authRoutes.POST("/tasks", server.createTask)
+	authRoutes.GET("/tasks", server.listTask)
+	authRoutes.GET("/tasks/:id", server.getTask)
+	authRoutes.PUT("/tasks/:id", server.updateTask)
+	authRoutes.DELETE("/tasks/:id", server.deleteTask)
+
 	server.router = router
 }
 
