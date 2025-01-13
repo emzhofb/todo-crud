@@ -15,3 +15,9 @@ Generate SQLC
 sqlc init
 sqlc generate
 ```
+
+Run
+
+```
+go run main.go
+```

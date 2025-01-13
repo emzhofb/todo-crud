@@ -33,7 +33,7 @@ func main() {
 	runDBMigration(config.MigrationURL, config.DBSource)
 	store := db.NewStore(connPool)
 
-	runGinServer(config, store)
+	runGinServer(config, store, connPool)
 }
 
 func runDBMigration(migrationURL string, dbSource string) {
@@ -49,8 +49,8 @@ func runDBMigration(migrationURL string, dbSource string) {
 	log.Info().Msg("db migrated successfully")
 }
 
-func runGinServer(config util.Config, store db.Store) {
-	server, err := api.NewServer(config, store)
+func runGinServer(config util.Config, store db.Store, connPool *pgxpool.Pool) {
+	server, err := api.NewServer(config, store, connPool)
 	if err != nil {
 		log.Fatal().Msg("cannot create server")
 	}

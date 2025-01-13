@@ -1,7 +1,9 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -50,43 +52,103 @@ func (server *Server) createTask(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, task)
 }
 
-type listTodoRequest struct {
-	Page  int32 `form:"page"`
-	Limit int32 `form:"limit"`
+type TaskSchema struct {
+	ID          int32  `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	DueDate     string `json:"due_date"`
+}
+
+type listTasksRequest struct {
+	Status string `form:"status"`
+	Search string `form:"search"`
+	Page   int    `form:"page"`
+	Limit  int    `form:"limit"`
 }
 
 func (server *Server) listTask(ctx *gin.Context) {
-	var req listTodoRequest
+	// Parse query parameters
+	var req listTasksRequest
 	if err := ctx.ShouldBindQuery(&req); err != nil {
-		ctx.JSON(http.StatusBadRequest, errorResponse(err))
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	limit := int32(5)
-	if req.Limit != 0 {
+	// Default pagination values
+	limit := 10
+	if req.Limit > 0 {
 		limit = req.Limit
 	}
-
-	page := int32(1)
-	if req.Page != 0 {
+	page := 1
+	if req.Page > 0 {
 		page = req.Page
 	}
 	offset := (page - 1) * limit
 
-	arg := db.ListTasksParams{
-		Limit:  limit,
-		Offset: offset,
+	// Base query
+	query := "SELECT id, title, description, status, due_date FROM tasks WHERE 1=1"
+	countQuery := "SELECT COUNT(*) FROM tasks WHERE 1=1"
+
+	// Dynamic filters
+	var args []any
+	argIndex := 1 // For dynamic parameter binding
+
+	if req.Status != "" {
+		query += " AND status = $" + fmt.Sprintf("%d", argIndex)
+		countQuery += " AND status = $" + fmt.Sprintf("%d", argIndex)
+		args = append(args, req.Status)
+		argIndex++
 	}
 
-	tasks, err := server.store.ListTasks(ctx, arg)
+	if req.Search != "" {
+		query += " AND (title ILIKE '%' || $" + fmt.Sprintf("%d", argIndex) + " || '%' OR description ILIKE '%' || $" + fmt.Sprintf("%d", argIndex) + " || '%')"
+		countQuery += " AND (title ILIKE '%' || $" + fmt.Sprintf("%d", argIndex) + " || '%' OR description ILIKE '%' || $" + fmt.Sprintf("%d", argIndex) + " || '%')"
+		args = append(args, req.Search)
+		argIndex++
+	}
+
+	// Fetch total task count for pagination
+	var totalTasks int
+	err := server.connPool.QueryRow(ctx.Request.Context(), countQuery, args...).Scan(&totalTasks)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, errorResponse(err))
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	totalPages := (totalTasks + int(limit) - 1) / int(limit)
+
+	// Add pagination
+	query += " ORDER BY id LIMIT $" + fmt.Sprintf("%d", argIndex) + " OFFSET $" + fmt.Sprintf("%d", argIndex+1)
+	args = append(args, strconv.Itoa(limit), strconv.Itoa(offset))
+
+	// Fetch tasks
+	rows, err := server.connPool.Query(ctx.Request.Context(), query, args...)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	// Parse rows into tasks
+	var tasks []TaskSchema
+	for rows.Next() {
+		var task TaskSchema
+		var dueDate time.Time
+		if err := rows.Scan(&task.ID, &task.Title, &task.Description, &task.Status, &dueDate); err != nil {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		task.DueDate = dueDate.Format("2006-01-02")
+		tasks = append(tasks, task)
+	}
+
+	// Check for errors in rows iteration
+	if err := rows.Err(); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
-	totalTasks := len(tasks) // Assuming this function provides the count
-	totalPages := (totalTasks + int(limit) - 1) / int(limit)
-
+	// Respond with tasks and pagination metadata
 	ctx.JSON(http.StatusOK, gin.H{
 		"tasks": tasks,
 		"pagination": gin.H{
@@ -114,7 +176,15 @@ func (server *Server) getTask(ctx *gin.Context) {
 		return
 	}
 
-	ctx.JSON(http.StatusOK, task)
+	returnedTask := TaskSchema{
+		ID:          int32(task.ID),
+		Title:       task.Title,
+		Description: task.Description,
+		Status:      task.Status,
+		DueDate:     task.DueDate.Format("2006-01-02"),
+	}
+
+	ctx.JSON(http.StatusOK, returnedTask)
 }
 
 type updateTaskRequest struct {
@@ -162,9 +232,17 @@ func (server *Server) updateTask(ctx *gin.Context) {
 		return
 	}
 
+	returnedTask := TaskSchema{
+		ID:          int32(query.ID),
+		Title:       req.Title,
+		Description: req.Description,
+		Status:      req.Status,
+		DueDate:     req.DueDate,
+	}
+
 	ctx.JSON(http.StatusOK, gin.H{
 		"message": "task updated successfully",
-		"task":    arg,
+		"task":    returnedTask,
 	})
 }
 
