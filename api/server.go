@@ -50,6 +50,10 @@ func (server *Server) setupRouter() {
 	})
 
 	router.POST("/tasks", server.createTask)
+	router.GET("/tasks", server.listTask)
+	router.GET("/tasks/:id", server.getTask)
+	router.PUT("/tasks/:id", server.updateTask)
+	router.DELETE("/tasks/:id", server.deleteTask)
 
 	server.router = router
 }
